@@ -1,14 +1,29 @@
 extends Camera3D
 
-var yaw: float = 0.78 # Isometric 45-degree angle
-var pitch: float = -0.55
-var distance: float = 38.0
+var yaw: float = 0.785 # 45 degrees isometric
+var pitch: float = -0.58
+var distance: float = 42.0
 var target: Vector3 = Vector3(16, 9, 16)
 var is_orbiting: bool = false
 
 @onready var world = get_parent()
 
 func _ready():
+	projection = Camera3D.PROJECTION_ORTHOGONAL
+	size = 28.0
+	_update_orbit_transform()
+
+func toggle_ortho():
+	if projection == Camera3D.PROJECTION_ORTHOGONAL:
+		projection = Camera3D.PROJECTION_PERSPECTIVE
+	else:
+		projection = Camera3D.PROJECTION_ORTHOGONAL
+		size = distance * 0.68
+	_update_orbit_transform()
+
+func set_angle(new_yaw: float, new_pitch: float):
+	yaw = new_yaw
+	pitch = new_pitch
 	_update_orbit_transform()
 
 func _process(delta):
@@ -28,18 +43,16 @@ func _update_orbit_transform():
 	look_at(target, Vector3.UP)
 
 func _unhandled_input(event):
-	if event is InputEventKey and event.pressed:
-		if event.keycode >= KEY_1 and event.keycode <= KEY_8:
-			world.selected_block_id = event.keycode - KEY_0
-
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_RIGHT:
 			is_orbiting = event.pressed
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
-			distance = clamp(distance - 2.5, 10.0, 80.0)
+			distance = clamp(distance - 2.5, 12.0, 75.0)
+			size = distance * 0.68
 			_update_orbit_transform()
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
-			distance = clamp(distance + 2.5, 10.0, 80.0)
+			distance = clamp(distance + 2.5, 12.0, 75.0)
+			size = distance * 0.68
 			_update_orbit_transform()
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 			_raycast_tool(event.position)
@@ -51,9 +64,9 @@ func _unhandled_input(event):
 
 func _raycast_tool(screen_pos: Vector2):
 	var from = project_ray_origin(screen_pos)
-	var to = from + project_ray_normal(screen_pos) * 150.0
+	var to = from + project_ray_normal(screen_pos) * 200.0
 	var query = PhysicsRayQueryParameters3D.create(from, to)
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
 	
 	if hit:
-		world.apply_tool_at(hit.position.x, hit.position.y, hit.position.z, hit.normal)
+		world.apply_tool_at(hit.position, hit.normal)

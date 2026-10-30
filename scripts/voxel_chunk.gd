@@ -2,20 +2,27 @@ class_name VoxelChunk
 extends StaticBody3D
 
 const CHUNK_SIZE = 16
-var voxels = []
+var voxels = [] # Stores packed int: color_idx + (tex_idx << 8)
 var mesh_instance: MeshInstance3D
 var collision_shape: CollisionShape3D
 
-const PALETTE = {
-	1: Color("#6ab04c"), # Grass Top
-	2: Color("#38c6d9"), # Ice Crystal
-	3: Color("#ff5232"), # Magma Core
-	4: Color("#f6d365"), # Desert Sand
-	5: Color("#7f8c8d"), # Stone Brick
-	6: Color("#9b6b4b"), # Terracotta Cliff
-	7: Color("#3d6e38"), # Forest Leaves
-	8: Color("#2f3640")  # Obsidian Dark
-}
+static var shared_material: StandardMaterial3D = null
+
+const PALETTE = [
+	Color("#ffffff"), # 0 unused
+	# Forest & Cliff (1-8)
+	Color("#5ac54f"), Color("#3e8948"), Color("#265c42"), Color("#8cd656"),
+	Color("#8a5844"), Color("#6d4234"), Color("#523126"), Color("#a87056"),
+	# Frost & Crystal (9-16)
+	Color("#e3f8ff"), Color("#99e6ff"), Color("#38c6d9"), Color("#1685a8"),
+	Color("#0f5573"), Color("#6b8299"), Color("#485869"), Color("#ffffff"),
+	# Desert & Gold (17-24)
+	Color("#ffe678"), Color("#f5c242"), Color("#d99126"), Color("#b36b19"),
+	Color("#e8c170"), Color("#c49a52"), Color("#8c6b3b"), Color("#544026"),
+	# Volcanic & Obsidian (25-32)
+	Color("#ff5232"), Color("#ff8c24"), Color("#c42430"), Color("#42393b"),
+	Color("#2b2527"), Color("#1a1618"), Color("#635659"), Color("#ffdb4d")
+]
 
 func _init():
 	voxels.resize(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)
@@ -24,6 +31,45 @@ func _init():
 	collision_shape = CollisionShape3D.new()
 	add_child(mesh_instance)
 	add_child(collision_shape)
+	if shared_material == null:
+		shared_material = _create_pixel_atlas_material()
+
+static func _create_pixel_atlas_material() -> StandardMaterial3D:
+	# 8 texture types side-by-side (each 16x16 pixels = 128x16 atlas)
+	var img = Image.create(128, 16, false, Image.FORMAT_RGBA8)
+	for t in range(8):
+		var ox = t * 16
+		for y in range(16):
+			for x in range(16):
+				var v = 0.96
+				# Crisp voxel border outline
+				if x == 0 or y == 0 or x == 15 or y == 15:
+					v = 0.84
+				if t == 0: # Grass Block (top fringe & noise)
+					if y < 4 or (y == 4 and (x % 3 == 0)): v = 1.04
+					elif (x * 7 + y * 13) % 5 == 0: v = 0.88
+				elif t == 2: # Ice Crystal (diagonal shine)
+					if (x + y) in [5, 6, 17, 18]: v = 1.15
+				elif t == 3: # Magma cracks
+					if (x * 3 + y * 5) % 9 == 0: v = 1.2
+					elif (x + y) % 4 == 0: v = 0.78
+				elif t == 4: # Stone Brick mortar
+					if y % 8 == 0 or ((x + (y / 8) * 8) % 16 == 0): v = 0.72
+				elif t == 5: # Wood Planks
+					if y % 4 == 0 or (x == 8 and (y / 4) % 2 == 0): v = 0.76
+				elif t == 6: # Sand speckles
+					if (x * 11 + y * 7) % 6 == 0: v = 0.88
+				elif t == 7: # Leaf checkerboard
+					if (x + y) % 2 == 0: v = 0.86
+				img.set_pixel(ox + x, y, Color(v, v, v, 1.0))
+
+	var tex = ImageTexture.create_from_image(img)
+	var mat = StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.albedo_texture = tex
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	mat.roughness = 0.9
+	return mat
 
 func get_index(x: int, y: int, z: int) -> int:
 	return x + CHUNK_SIZE * (y + CHUNK_SIZE * z)
@@ -108,11 +154,7 @@ func rebuild_mesh():
 						i += 1
 						n += 1
 
-	var mat = StandardMaterial3D.new()
-	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 0.9
-	st.set_material(mat)
-	
+	st.set_material(shared_material)
 	var array_mesh = st.commit()
 	mesh_instance.mesh = array_mesh
 	
@@ -122,17 +164,28 @@ func rebuild_mesh():
 		collision_shape.shape = null
 
 func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: int, normal: Vector3):
-	var color = PALETTE.get(abs(c), Color.WHITE)
-	# Subtle face shading so cubes stand out clearly
+	var val = abs(c)
+	var col_idx = clampi(val & 0xFF, 1, PALETTE.size() - 1)
+	var tex_idx = clampi((val >> 8) & 0xFF, 0, 7)
+	
+	var color = PALETTE[col_idx]
 	if abs(normal.x) > 0.5:
-		color = color.darkened(0.12)
+		color = color.darkened(0.14)
 	elif abs(normal.z) > 0.5:
-		color = color.darkened(0.06)
+		color = color.darkened(0.07)
 	elif normal.y < -0.5:
-		color = color.darkened(0.25)
+		color = color.darkened(0.28)
 
 	st.set_color(color)
 	st.set_normal(normal)
+	
+	# Map into the 1/8th horizontal slot of our pixel texture atlas
+	var u0 = (float(tex_idx) + 0.08) / 8.0
+	var u1 = (float(tex_idx) + 0.92) / 8.0
+	var uv0 = Vector2(u0, 0.92)
+	var uv1 = Vector2(u1, 0.92)
+	var uv2 = Vector2(u1, 0.08)
+	var uv3 = Vector2(u0, 0.08)
 	
 	var v0 = p
 	var v1 = p + du
@@ -140,8 +193,16 @@ func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: 
 	var v3 = p + dv
 	
 	if c > 0:
-		st.add_vertex(v0); st.add_vertex(v2); st.add_vertex(v1)
-		st.add_vertex(v0); st.add_vertex(v3); st.add_vertex(v2)
+		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv1); st.add_vertex(v1)
+		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv3); st.add_vertex(v3)
+		st.set_uv(uv2); st.add_vertex(v2)
 	else:
-		st.add_vertex(v0); st.add_vertex(v1); st.add_vertex(v2)
-		st.add_vertex(v0); st.add_vertex(v2); st.add_vertex(v3)
+		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv1); st.add_vertex(v1)
+		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv3); st.add_vertex(v3)
