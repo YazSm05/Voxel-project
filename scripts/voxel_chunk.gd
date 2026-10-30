@@ -2,16 +2,19 @@ class_name VoxelChunk
 extends StaticBody3D
 
 const CHUNK_SIZE = 16
-var voxels = [] # Tableau 3D aplati : CHUNK_SIZE^3 (0 = vide, >0 = ID couleur)
+var voxels = []
 var mesh_instance: MeshInstance3D
 var collision_shape: CollisionShape3D
 
 const PALETTE = {
-	1: Color("#6ab04c"), # Herbe
-	2: Color("#22a6b3"), # Cristal Glace
-	3: Color("#eb4d4b"), # Magma
-	4: Color("#f9ca24"), # Sable d'or
-	5: Color("#95afc0")  # Pierre
+	1: Color("#6ab04c"), # Grass Top
+	2: Color("#38c6d9"), # Ice Crystal
+	3: Color("#ff5232"), # Magma Core
+	4: Color("#f6d365"), # Desert Sand
+	5: Color("#7f8c8d"), # Stone Brick
+	6: Color("#9b6b4b"), # Terracotta Cliff
+	7: Color("#3d6e38"), # Forest Leaves
+	8: Color("#2f3640")  # Obsidian Dark
 }
 
 func _init():
@@ -34,7 +37,6 @@ func set_voxel(x: int, y: int, z: int, value: int):
 	if x >= 0 and x < CHUNK_SIZE and y >= 0 and y < CHUNK_SIZE and z >= 0 and z < CHUNK_SIZE:
 		voxels[get_index(x, y, z)] = value
 
-# Algorithme de Greedy Meshing sur les 3 axes (X, Y, Z) et 2 directions (avant/arrière)
 func rebuild_mesh():
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
@@ -61,12 +63,11 @@ func rebuild_mesh():
 					if (a != 0) == (b != 0):
 						mask[n] = 0
 					elif a != 0:
-						mask[n] = a # Face positive
+						mask[n] = a
 					else:
-						mask[n] = -b # Face négative
+						mask[n] = -b
 					n += 1
 			
-			# Balayage Greedy 2D sur le masque
 			n = 0
 			for j in range(CHUNK_SIZE):
 				var i = 0
@@ -95,7 +96,8 @@ func rebuild_mesh():
 						dv[v] = h
 						
 						var pos = Vector3(x[0], x[1], x[2]) + Vector3(q[0], q[1], q[2])
-						_add_greedy_quad(st, pos, Vector3(du[0], du[1], du[2]), Vector3(dv[0], dv[1], dv[2]), c)
+						var normal = Vector3(q[0], q[1], q[2]) if c > 0 else Vector3(-q[0], -q[1], -q[2])
+						_add_greedy_quad(st, pos, Vector3(du[0], du[1], du[2]), Vector3(dv[0], dv[1], dv[2]), c, normal)
 						
 						for l in range(h):
 							for k in range(w):
@@ -106,32 +108,40 @@ func rebuild_mesh():
 						i += 1
 						n += 1
 
-	st.generate_normals()
 	var mat = StandardMaterial3D.new()
 	mat.vertex_color_use_as_albedo = true
-	mat.roughness = 0.85
+	mat.roughness = 0.9
 	st.set_material(mat)
 	
 	var array_mesh = st.commit()
 	mesh_instance.mesh = array_mesh
 	
-	# Mise à jour de la physique pour le Mode Exploration
 	if array_mesh.get_surface_count() > 0:
 		collision_shape.shape = array_mesh.create_trimesh_shape()
 	else:
 		collision_shape.shape = null
 
-func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: int):
+func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: int, normal: Vector3):
 	var color = PALETTE.get(abs(c), Color.WHITE)
+	# Subtle face shading so cubes stand out clearly
+	if abs(normal.x) > 0.5:
+		color = color.darkened(0.12)
+	elif abs(normal.z) > 0.5:
+		color = color.darkened(0.06)
+	elif normal.y < -0.5:
+		color = color.darkened(0.25)
+
 	st.set_color(color)
+	st.set_normal(normal)
+	
 	var v0 = p
 	var v1 = p + du
 	var v2 = p + du + dv
 	var v3 = p + dv
 	
 	if c > 0:
-		st.add_vertex(v0); st.add_vertex(v1); st.add_vertex(v2)
-		st.add_vertex(v0); st.add_vertex(v2); st.add_vertex(v3)
-	else:
 		st.add_vertex(v0); st.add_vertex(v2); st.add_vertex(v1)
 		st.add_vertex(v0); st.add_vertex(v3); st.add_vertex(v2)
+	else:
+		st.add_vertex(v0); st.add_vertex(v1); st.add_vertex(v2)
+		st.add_vertex(v0); st.add_vertex(v2); st.add_vertex(v3)
