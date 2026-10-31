@@ -66,13 +66,31 @@ func _unhandled_input(event):
 			_raycast_tool(event.position, false)
 
 func _raycast_tool(screen_pos: Vector2, is_click: bool):
+	if world.modal_overlay and world.modal_overlay.visible:
+		world.hide_cursor_preview()
+		return
+
 	var from = project_ray_origin(screen_pos)
-	var to = from + project_ray_normal(screen_pos) * 200.0
+	var ray_dir = project_ray_normal(screen_pos)
+	var to = from + ray_dir * 200.0
 	var query = PhysicsRayQueryParameters3D.create(from, to)
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
 	
 	if hit:
-		var snapped_normal = hit.normal.round()
+		var n = hit.normal
+		# Force normal to always point OUTWARD toward the camera ray
+		if n.dot(ray_dir) > 0.0:
+			n = -n
+		# Snap strictly to the dominant axis (±X, ±Y, or ±Z)
+		var ax = abs(n.x); var ay = abs(n.y); var az = abs(n.z)
+		var snapped_normal = Vector3.ZERO
+		if ax >= ay and ax >= az:
+			snapped_normal = Vector3(sign(n.x), 0, 0)
+		elif ay >= ax and ay >= az:
+			snapped_normal = Vector3(0, sign(n.y), 0)
+		else:
+			snapped_normal = Vector3(0, 0, sign(n.z))
+
 		if is_click:
 			world.apply_tool_at(hit.position, snapped_normal)
 		else:

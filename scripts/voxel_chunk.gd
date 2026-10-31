@@ -157,7 +157,9 @@ func rebuild_mesh():
 	mesh_instance.mesh = array_mesh
 	
 	if array_mesh.get_surface_count() > 0:
-		collision_shape.shape = array_mesh.create_trimesh_shape()
+		var shape = array_mesh.create_trimesh_shape()
+		shape.backface_collision = true
+		collision_shape.shape = shape
 	else:
 		collision_shape.shape = null
 
@@ -189,18 +191,18 @@ func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: 
 	var v2 = p + du + dv
 	var v3 = p + dv
 	
-	# Correct clockwise winding for Godot PhysicsRayQueryParameters3D outward normals
+	# Outward visible face winding for Godot 4
 	if c > 0:
 		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv1); st.add_vertex(v1)
-		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv0); st.add_vertex(v0)
-		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv3); st.add_vertex(v3)
+		st.set_uv(uv2); st.add_vertex(v2)
 	else:
 		st.set_uv(uv0); st.add_vertex(v0)
-		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv1); st.add_vertex(v1)
-		st.set_uv(uv0); st.add_vertex(v0)
-		st.set_uv(uv3); st.add_vertex(v3)
 		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv3); st.add_vertex(v3)
