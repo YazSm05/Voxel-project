@@ -2,14 +2,14 @@ class_name VoxelChunk
 extends StaticBody3D
 
 const CHUNK_SIZE = 16
-var voxels = [] # Stores packed int: color_idx + (tex_idx << 8)
+var voxels = [] # Packed int: col_idx + (tex_idx << 8)
 var mesh_instance: MeshInstance3D
 var collision_shape: CollisionShape3D
 
 static var shared_material: StandardMaterial3D = null
 
 const PALETTE = [
-	Color("#ffffff"), # 0 unused
+	Color("#ffffff"),
 	# Forest & Cliff (1-8)
 	Color("#5ac54f"), Color("#3e8948"), Color("#265c42"), Color("#8cd656"),
 	Color("#8a5844"), Color("#6d4234"), Color("#523126"), Color("#a87056"),
@@ -35,31 +35,29 @@ func _init():
 		shared_material = _create_pixel_atlas_material()
 
 static func _create_pixel_atlas_material() -> StandardMaterial3D:
-	# 8 texture types side-by-side (each 16x16 pixels = 128x16 atlas)
 	var img = Image.create(128, 16, false, Image.FORMAT_RGBA8)
 	for t in range(8):
 		var ox = t * 16
 		for y in range(16):
 			for x in range(16):
 				var v = 0.96
-				# Crisp voxel border outline
 				if x == 0 or y == 0 or x == 15 or y == 15:
-					v = 0.84
-				if t == 0: # Grass Block (top fringe & noise)
+					v = 0.82
+				if t == 0:
 					if y < 4 or (y == 4 and (x % 3 == 0)): v = 1.04
 					elif (x * 7 + y * 13) % 5 == 0: v = 0.88
-				elif t == 2: # Ice Crystal (diagonal shine)
+				elif t == 2:
 					if (x + y) in [5, 6, 17, 18]: v = 1.15
-				elif t == 3: # Magma cracks
+				elif t == 3:
 					if (x * 3 + y * 5) % 9 == 0: v = 1.2
 					elif (x + y) % 4 == 0: v = 0.78
-				elif t == 4: # Stone Brick mortar
+				elif t == 4:
 					if y % 8 == 0 or ((x + (y / 8) * 8) % 16 == 0): v = 0.72
-				elif t == 5: # Wood Planks
+				elif t == 5:
 					if y % 4 == 0 or (x == 8 and (y / 4) % 2 == 0): v = 0.76
-				elif t == 6: # Sand speckles
+				elif t == 6:
 					if (x * 11 + y * 7) % 6 == 0: v = 0.88
-				elif t == 7: # Leaf checkerboard
+				elif t == 7:
 					if (x + y) % 2 == 0: v = 0.86
 				img.set_pixel(ox + x, y, Color(v, v, v, 1.0))
 
@@ -179,7 +177,6 @@ func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: 
 	st.set_color(color)
 	st.set_normal(normal)
 	
-	# Map into the 1/8th horizontal slot of our pixel texture atlas
 	var u0 = (float(tex_idx) + 0.08) / 8.0
 	var u1 = (float(tex_idx) + 0.92) / 8.0
 	var uv0 = Vector2(u0, 0.92)
@@ -192,17 +189,18 @@ func _add_greedy_quad(st: SurfaceTool, p: Vector3, du: Vector3, dv: Vector3, c: 
 	var v2 = p + du + dv
 	var v3 = p + dv
 	
+	# Correct clockwise winding for Godot PhysicsRayQueryParameters3D outward normals
 	if c > 0:
 		st.set_uv(uv0); st.add_vertex(v0)
-		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv1); st.add_vertex(v1)
-		st.set_uv(uv0); st.add_vertex(v0)
-		st.set_uv(uv3); st.add_vertex(v3)
 		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv2); st.add_vertex(v2)
+		st.set_uv(uv3); st.add_vertex(v3)
 	else:
 		st.set_uv(uv0); st.add_vertex(v0)
+		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv1); st.add_vertex(v1)
-		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv0); st.add_vertex(v0)
-		st.set_uv(uv2); st.add_vertex(v2)
 		st.set_uv(uv3); st.add_vertex(v3)
+		st.set_uv(uv2); st.add_vertex(v2)

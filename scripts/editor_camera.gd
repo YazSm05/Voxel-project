@@ -1,6 +1,6 @@
 extends Camera3D
 
-var yaw: float = 0.785 # 45 degrees isometric
+var yaw: float = 0.785
 var pitch: float = -0.58
 var distance: float = 42.0
 var target: Vector3 = Vector3(16, 9, 16)
@@ -55,18 +55,27 @@ func _unhandled_input(event):
 			size = distance * 0.68
 			_update_orbit_transform()
 		elif event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
-			_raycast_tool(event.position)
+			_raycast_tool(event.position, true)
 
-	if event is InputEventMouseMotion and is_orbiting:
-		yaw -= event.relative.x * 0.008
-		pitch = clamp(pitch - event.relative.y * 0.008, -1.4, -0.1)
-		_update_orbit_transform()
+	if event is InputEventMouseMotion:
+		if is_orbiting:
+			yaw -= event.relative.x * 0.008
+			pitch = clamp(pitch - event.relative.y * 0.008, -1.4, -0.1)
+			_update_orbit_transform()
+		else:
+			_raycast_tool(event.position, false)
 
-func _raycast_tool(screen_pos: Vector2):
+func _raycast_tool(screen_pos: Vector2, is_click: bool):
 	var from = project_ray_origin(screen_pos)
 	var to = from + project_ray_normal(screen_pos) * 200.0
 	var query = PhysicsRayQueryParameters3D.create(from, to)
 	var hit = get_world_3d().direct_space_state.intersect_ray(query)
 	
 	if hit:
-		world.apply_tool_at(hit.position, hit.normal)
+		var snapped_normal = hit.normal.round()
+		if is_click:
+			world.apply_tool_at(hit.position, snapped_normal)
+		else:
+			world.update_cursor_preview(hit.position, snapped_normal)
+	else:
+		world.hide_cursor_preview()
