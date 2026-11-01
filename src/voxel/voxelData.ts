@@ -3,7 +3,7 @@ import * as THREE from 'three';
 export const CHUNK_SIZE = 16;
 export const WORLD_SIZE = 32;
 
-export const PALETTE: string[] = [
+export const DEFAULT_PALETTE: string[] = [
   '#ffffff',
   // Forest & Cliff (1-8)
   '#5ac54f', '#3e8948', '#265c42', '#8cd656',
@@ -18,6 +18,8 @@ export const PALETTE: string[] = [
   '#ff5232', '#ff8c24', '#c42430', '#42393b',
   '#2b2527', '#1a1618', '#635659', '#ffdb4d',
 ];
+
+export const PALETTE: string[] = [...DEFAULT_PALETTE];
 
 export const TEX_NAMES = [
   'Grass Block',
@@ -57,15 +59,55 @@ export interface SavedBuild {
   voxels: VoxelEntry[];
 }
 
+const CUSTOM_RGB_FLAG = 0x10000000;
+
+export function normalizeHex(input: string): string | null {
+  const cleaned = input.trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{6}$/.test(cleaned)) {
+    return `#${cleaned.toLowerCase()}`;
+  }
+  if (/^[0-9a-fA-F]{3}$/.test(cleaned)) {
+    const r = cleaned[0];
+    const g = cleaned[1];
+    const b = cleaned[2];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return null;
+}
+
 export function packVoxel(colIdx: number, texIdx: number): number {
   return (colIdx & 0xff) | ((texIdx & 0xff) << 8);
 }
 
-export function unpackVoxel(val: number): { colIdx: number; texIdx: number } {
+export function packVoxelHex(hex: string, texIdx: number, fallbackColIdx = 1): number {
+  const norm = normalizeHex(hex);
+  if (!norm) {
+    return packVoxel(fallbackColIdx, texIdx);
+  }
+  // Check if hex matches current PALETTE at fallbackColIdx
+  if (PALETTE[fallbackColIdx]?.toLowerCase() === norm) {
+    return packVoxel(fallbackColIdx, texIdx);
+  }
+  const rgb = parseInt(norm.slice(1), 16) & 0xffffff;
+  return CUSTOM_RGB_FLAG | ((texIdx & 0x7) << 24) | rgb;
+}
+
+export function unpackVoxel(val: number): { colIdx: number; texIdx: number; hex: string } {
   const absVal = Math.abs(val);
+  if ((absVal & CUSTOM_RGB_FLAG) !== 0) {
+    const rgb = absVal & 0xffffff;
+    const texIdx = (absVal >> 24) & 0x7;
+    const hex = `#${rgb.toString(16).padStart(6, '0')}`;
+    const foundIdx = PALETTE.findIndex((p, idx) => idx > 0 && p.toLowerCase() === hex.toLowerCase());
+    return {
+      colIdx: foundIdx !== -1 ? foundIdx : 1,
+      texIdx,
+      hex,
+    };
+  }
   const colIdx = Math.min(Math.max(absVal & 0xff, 1), PALETTE.length - 1);
   const texIdx = Math.min(Math.max((absVal >> 8) & 0xff, 0), 7);
-  return { colIdx, texIdx };
+  return { colIdx, texIdx, hex: PALETTE[colIdx] };
 }
 
 export function posKey(x: number, y: number, z: number): string {
@@ -383,8 +425,8 @@ export function buildChunkGreedyGeometry(
             const ny = c > 0 ? q[1] : -q[1];
             const nz = c > 0 ? q[2] : -q[2];
 
-            const { colIdx, texIdx } = unpackVoxel(c);
-            tempColor.set(PALETTE[colIdx]);
+            const { hex, texIdx } = unpackVoxel(c);
+            tempColor.set(hex);
 
             // Directional shading matching voxel_chunk.gd
             let shade = 1.0;
@@ -472,22 +514,22 @@ export function createBuildThumbnailDataUrl(voxels: VoxelEntry[]): string {
   ctx.fillStyle = '#081824';
   ctx.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
 
-  const topY = new Map<string, [number, number]>();
+  const topY = new Map<string, [number, string]>();
   for (const [vx, vy, vz, packed] of voxels) {
     const key = `${vx},${vz}`;
     const existing = topY.get(key);
     if (!existing || vy > existing[0]) {
-      topY.set(key, [vy, packed & 0xff]);
+      const { hex } = unpackVoxel(packed);
+      topY.set(key, [vy, hex]);
     }
   }
 
-  topY.forEach(([, colIdx], key) => {
+  topY.forEach(([, hex], key) => {
     const [xStr, zStr] = key.split(',');
     const x = Number(xStr);
     const z = Number(zStr);
     if (x >= 0 && x < WORLD_SIZE && z >= 0 && z < WORLD_SIZE) {
-      const clampedIdx = Math.min(Math.max(colIdx, 1), PALETTE.length - 1);
-      ctx.fillStyle = PALETTE[clampedIdx];
+      ctx.fillStyle = hex;
       ctx.fillRect(x, z, 1, 1);
     }
   });
