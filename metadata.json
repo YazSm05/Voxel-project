@@ -1,0 +1,5 @@
+{
+  "name": "Sandbox Voxel Workshop",
+  "description": "3D voxel engine and workshop inspired by The Sandbox with 16x16x16 chunking, greedy meshing, biome palettes, community shop, and real-time editor/exploration mode switching.",
+  "requestFramePermissions": []
+}
