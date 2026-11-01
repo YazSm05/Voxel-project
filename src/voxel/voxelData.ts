@@ -56,6 +56,10 @@ export interface SavedBuild {
   name: string;
   author: string;
   price: string;
+  bio?: string;
+  imageUrl?: string;
+  previewYaw?: number;
+  previewPitch?: number;
   voxels: VoxelEntry[];
 }
 
@@ -84,7 +88,6 @@ export function packVoxelHex(hex: string, texIdx: number, fallbackColIdx = 1): n
   if (!norm) {
     return packVoxel(fallbackColIdx, texIdx);
   }
-  // Check if hex matches current PALETTE at fallbackColIdx
   if (PALETTE[fallbackColIdx]?.toLowerCase() === norm) {
     return packVoxel(fallbackColIdx, texIdx);
   }
@@ -332,6 +335,24 @@ export function serializeWorldMap(map: Map<string, number>): VoxelEntry[] {
   return arr;
 }
 
+export function voxelArrayToMap(voxels: VoxelEntry[]): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const [vx, vy, vz, val] of voxels) {
+    if (
+      vx >= 0 &&
+      vx < WORLD_SIZE &&
+      vy >= 0 &&
+      vy < WORLD_SIZE &&
+      vz >= 0 &&
+      vz < WORLD_SIZE &&
+      val !== 0
+    ) {
+      map.set(posKey(vx, vy, vz), val);
+    }
+  }
+  return map;
+}
+
 /**
  * Greedy Meshing for a 16x16x16 chunk (ported directly from voxel_chunk.gd)
  */
@@ -428,7 +449,6 @@ export function buildChunkGreedyGeometry(
             const { hex, texIdx } = unpackVoxel(c);
             tempColor.set(hex);
 
-            // Directional shading matching voxel_chunk.gd
             let shade = 1.0;
             if (Math.abs(nx) > 0.5) shade = 1.0 - 0.14;
             else if (Math.abs(nz) > 0.5) shade = 1.0 - 0.07;
@@ -461,7 +481,6 @@ export function buildChunkGreedyGeometry(
               colors.push(rCol, gCol, bCol);
             };
 
-            // Counter-clockwise outward face winding in Three.js
             if (c > 0) {
               pushVertex(v0, uv0);
               pushVertex(v1, uv1);
@@ -504,35 +523,70 @@ export function buildChunkGreedyGeometry(
 }
 
 /**
- * Renders a top-down 32x32 pixel thumbnail data URL for a voxel build
+ * Renders a stylized 2D isometric/top-down card cover image fallback when no custom screenshot is provided
  */
 export function createBuildThumbnailDataUrl(voxels: VoxelEntry[]): string {
   const canvas = document.createElement('canvas');
-  canvas.width = WORLD_SIZE;
-  canvas.height = WORLD_SIZE;
+  canvas.width = 240;
+  canvas.height = 160;
   const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#081824';
-  ctx.fillRect(0, 0, WORLD_SIZE, WORLD_SIZE);
 
-  const topY = new Map<string, [number, string]>();
-  for (const [vx, vy, vz, packed] of voxels) {
-    const key = `${vx},${vz}`;
-    const existing = topY.get(key);
-    if (!existing || vy > existing[0]) {
-      const { hex } = unpackVoxel(packed);
-      topY.set(key, [vy, hex]);
-    }
-  }
+  const grad = ctx.createLinearGradient(0, 0, 0, 160);
+  grad.addColorStop(0, '#0f2d47');
+  grad.addColorStop(1, '#081824');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 240, 160);
 
-  topY.forEach(([, hex], key) => {
-    const [xStr, zStr] = key.split(',');
-    const x = Number(xStr);
-    const z = Number(zStr);
-    if (x >= 0 && x < WORLD_SIZE && z >= 0 && z < WORLD_SIZE) {
-      ctx.fillStyle = hex;
-      ctx.fillRect(x, z, 1, 1);
-    }
+  // Sort voxels back-to-front for a crisp isometric pixel render
+  const sorted = [...voxels].sort((a, b) => {
+    const depthA = a[0] + a[2] + a[1] * 2;
+    const depthB = b[0] + b[2] + b[1] * 2;
+    return depthA - depthB;
   });
 
-  return canvas.toDataURL();
+  const tileW = 4.2;
+  const tileH = 2.1;
+  const cubeH = 3.2;
+  const originX = 120;
+  const originY = 98;
+
+  for (const [vx, vy, vz, packed] of sorted) {
+    const { hex } = unpackVoxel(packed);
+    const sx = originX + (vx - vz) * tileW;
+    const sy = originY + (vx + vz - 32) * tileH - (vy - 10) * cubeH;
+
+    // Top face
+    ctx.fillStyle = hex;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - cubeH);
+    ctx.lineTo(sx + tileW, sy - cubeH + tileH);
+    ctx.lineTo(sx, sy - cubeH + tileH * 2);
+    ctx.lineTo(sx - tileW, sy - cubeH + tileH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Left face
+    ctx.fillStyle = hex;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.moveTo(sx - tileW, sy - cubeH + tileH);
+    ctx.lineTo(sx, sy - cubeH + tileH * 2);
+    ctx.lineTo(sx, sy + tileH * 2);
+    ctx.lineTo(sx - tileW, sy + tileH);
+    ctx.closePath();
+    ctx.fill();
+
+    // Right face
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - cubeH + tileH * 2);
+    ctx.lineTo(sx + tileW, sy - cubeH + tileH);
+    ctx.lineTo(sx + tileW, sy + tileH);
+    ctx.lineTo(sx, sy + tileH * 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  }
+
+  return canvas.toDataURL('image/png');
 }
